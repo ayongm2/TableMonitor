@@ -1,4 +1,4 @@
-local stirng_find = string.find
+local string_find = string.find
 local string_match = string.match
 local string_sub = string.sub
 local table_insert = table.insert
