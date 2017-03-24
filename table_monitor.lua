@@ -1,5 +1,6 @@
 local string_find = string.find
 local string_match = string.match
+local string_format = string.format
 local string_sub = string.sub
 local table_insert = table.insert
 local table_remove = table.remove
@@ -136,11 +137,19 @@ local table_monitor_
 function table_monitor_(tb, callback, path)
     local data = tb or {}
     local subpath = path
-    local function createKey( key )
-        if "number" == type(key) then 
-            return "[" .. key .. "]"
+    local function createKey( subpath, key )
+        if subpath then 
+            if "number" == type(key) then 
+                return string_format("%s.[%s]", subpath, key)
+            else
+                return string_format("%s.%s", subpath, key)
+            end 
         else
-            return key
+            if "number" == type(key) then 
+                return string_format("[%s]", key)
+            else
+                return key
+            end 
         end
     end
     local mt = {
@@ -154,8 +163,7 @@ function table_monitor_(tb, callback, path)
                 end
                 local result = data[k]
                 if type(result) == "table" then 
-                    local newMonitor = table_monitor_(result, callback
-                        , subpath and subpath .. "." .. createKey(k) or createKey(k))
+                    local newMonitor = table_monitor_(result, callback, createKey(subpath, k))
                     rawset(t, k, newMonitor)
                     return newMonitor
                 else
@@ -168,9 +176,10 @@ function table_monitor_(tb, callback, path)
             if oldValue ~= v then 
                 data[k] = v
                 if callback then 
-                    if type(v) ~= "table" then 
-                        callback(subpath and subpath .. "." .. createKey(k) or createKey(k)
-                            , v, oldValue)
+                    if type(v) == "table" then 
+                        callback(createKey(subpath, k), t[k], oldValue)
+                    else
+                        callback(createKey(subpath, k), v, oldValue)
                     end
                 end
             end
@@ -208,36 +217,51 @@ end
     ta.c[2] = "c3"
 --]]
 function table.monitor( tb, callback )
-    local callbacks = {}
-    if callback then 
-        callbacks[#callbacks + 1] = callback
-    end
-    local addCallback = function ( self, cb )
-        callbacks[#callbacks + 1] = cb
-    end
-    local removeCallback = function ( self, cb )
-        table_removebyvalue(callbacks, cb, true)
-    end
-    local cb = function ( path, value, oldValue )
-        for k, listener in pairs(callbacks) do
-            listener(path, value, oldValue)
+    if tb.__ismonitor__ then 
+        tb:addCallback(callback)
+        return tb
+    else
+        local callbacks = {}
+        if callback then 
+            callbacks[#callbacks + 1] = callback
         end
-    end
-    local result = table_monitor_(tb, cb)
+        local addCallback = function ( self, cb )
+            for i, callback in ipairs(callbacks) do
+                if callback == cb then 
+                    return
+                end
+            end
+            callbacks[#callbacks + 1] = cb
+        end
+        local removeCallback = function ( self, cb )
+            table_removebyvalue(callbacks, cb, true)
+        end
+        local removeAllCallbacks = function ( self )
+            callbacks = {}
+        end
+        local cb = function ( path, value, oldValue )
+            for k, listener in ipairs(callbacks) do
+                listener(path, value, oldValue)
+            end
+        end
+        local result = table_monitor_(tb, cb)
 
-    local mt = getmetatable(result)
-    local index_fn = mt.__index
-    mt.__index = function ( t, k )
-        if k == "addCallback" then 
-            return addCallback
-        elseif k == "removeCallback" then
-            return removeCallback
-        else
-            return index_fn(t, k)
+        local mt = getmetatable(result)
+        local index_fn = mt.__index
+        mt.__index = function ( t, k )
+            if k == "addCallback" then 
+                return addCallback
+            elseif k == "removeCallback" then
+                return removeCallback
+            elseif k == "removeAllCallbacks" then
+                return removeAllCallbacks
+            else
+                return index_fn(t, k)
+            end
         end
+        setmetatable(result, mt)
+        return result
     end
-    setmetatable(result, mt)
-    return result
 end
 
 
