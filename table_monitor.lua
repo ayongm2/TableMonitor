@@ -176,9 +176,8 @@ function table_monitor_(tb, callback, path)
             if oldValue ~= v then 
                 data[k] = v
                 if callback then 
-                    if type(v) == "table" then 
-                        callback(createKey(subpath, k), t[k], oldValue)
-                    else
+                    -- 赋值table时会因为lua的机制__index和__newindex都不进入,只能不理会了
+                    if type(v) ~= "table" then 
                         callback(createKey(subpath, k), v, oldValue)
                     end
                 end
