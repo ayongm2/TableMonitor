@@ -135,7 +135,8 @@ end
 --]]
 local table_monitor_
 function table_monitor_(tb, callback, path)
-    local data = tb or {}
+    local data_ = tb or {}
+    local monitors_ = {}
     local subpath = path
     local function createKey( subpath, key )
         if subpath then 
@@ -154,31 +155,37 @@ function table_monitor_(tb, callback, path)
     end
     local mt = {
         __index = function ( t, k )
-            local v = rawget(t, k)
-            if v then 
-                return v
+            if "__ismonitor__" == k then
+                return true
+            end
+            if not data_ then return end
+            local result = data_[k]
+            if type(result) == "table" then 
+            	if not monitors_[k] then
+	                monitors_[k] = table_monitor_(result, callback, createKey(subpath, k))
+	            end
+                return monitors_[k]
             else
-                if "__ismonitor__" == k then
-                    return true
-                end
-                local result = data[k]
-                if type(result) == "table" then 
-                    local newMonitor = table_monitor_(result, callback, createKey(subpath, k))
-                    rawset(t, k, newMonitor)
-                    return newMonitor
-                else
-                    return result
-                end
+                return result
             end
         end,
         __newindex = function ( t, k, v )
-            local oldValue = data[k]
+            local oldValue 
+            if data_ then
+            	oldValue = data_[k]
+            end
             if oldValue ~= v then 
-                data[k] = v
+                data_[k] = v
                 if callback then 
-                    -- 赋值table时会因为lua的机制__index和__newindex都不进入,只能不理会了
-                    if type(v) ~= "table" then 
-                        callback(createKey(subpath, k), v, oldValue)
+                    local key = createKey(subpath, k)
+                    if type(v) == "table" then 
+                    	monitors_[k] = table_monitor_(v, callback, key)
+                        callback(key, monitors_[k], oldValue)
+                    else
+                    	if monitors_[k] then
+                    		monitors_[k] = nil
+                    	end
+                        callback(key, v, oldValue)
                     end
                 end
             end
@@ -193,7 +200,7 @@ function table_monitor_(tb, callback, path)
                     return table.getByPath(t, k)
                 end
             else
-                return data
+                return data_
             end
         end,
     }
@@ -216,53 +223,47 @@ end
     ta.c[2] = "c3"
 --]]
 function table.monitor( tb, callback )
-    if tb.__ismonitor__ then 
-        tb:addCallback(callback)
-        return tb
-    else
-        local callbacks = {}
-        if callback then 
-            callbacks[#callbacks + 1] = callback
-        end
-        local addCallback = function ( self, cb )
-            for i, callback in ipairs(callbacks) do
-                if callback == cb then 
-                    return
-                end
-            end
-            callbacks[#callbacks + 1] = cb
-        end
-        local removeCallback = function ( self, cb )
-            table_removebyvalue(callbacks, cb, true)
-        end
-        local removeAllCallbacks = function ( self )
-            callbacks = {}
-        end
-        local cb = function ( path, value, oldValue )
-            for k, listener in ipairs(callbacks) do
-                listener(path, value, oldValue)
-            end
-        end
-        local result = table_monitor_(tb, cb)
-
-        local mt = getmetatable(result)
-        local index_fn = mt.__index
-        mt.__index = function ( t, k )
-            if k == "addCallback" then 
-                return addCallback
-            elseif k == "removeCallback" then
-                return removeCallback
-            elseif k == "removeAllCallbacks" then
-                return removeAllCallbacks
-            else
-                return index_fn(t, k)
-            end
-        end
-        setmetatable(result, mt)
-        return result
+	if tb.__ismonitor__ then
+		tb = tb()
+	end
+    local callbacks = {}
+    if callback then 
+        callbacks[#callbacks + 1] = callback
     end
+    local addCallback = function ( self, cb )
+        for i, callback in ipairs(callbacks) do
+            if callback == cb then 
+                return
+            end
+        end
+        callbacks[#callbacks + 1] = cb
+    end
+    local removeCallback = function ( self, cb )
+        table_removebyvalue(callbacks, cb, true)
+    end
+    local removeAllCallbacks = function ( self )
+        callbacks = {}
+    end
+    local cb = function ( path, value, oldValue )
+        for k, listener in ipairs(callbacks) do
+            listener(path, value, oldValue)
+        end
+    end
+    local result = table_monitor_(tb, cb)
+
+    local mt = getmetatable(result)
+    local index_fn = mt.__index
+    mt.__index = function ( t, k )
+        if k == "addCallback" then 
+            return addCallback
+        elseif k == "removeCallback" then
+            return removeCallback
+        elseif k == "removeAllCallbacks" then
+            return removeAllCallbacks
+        else
+            return index_fn(t, k)
+        end
+    end
+    setmetatable(result, mt)
+    return result
 end
-
-
-
-
